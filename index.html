@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#08051c">
+    <title>Rainbow Flower for Tasha</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            font-family: system-ui, sans-serif;
+            background: #08051c;
+            color: #f7efff;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            min-height: 100vh;
+            margin: 0;
+            padding: 1.25rem 1rem 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background:
+                radial-gradient(ellipse at 50% 45%, #211044 0%, #100922 45%, #08051c 78%);
+        }
+
+        header {
+            text-align: center;
+            margin: 0.25rem 0 0.8rem;
+        }
+
+        h1 {
+            margin: 0;
+            color: #f9d5ff;
+            font-size: clamp(1.35rem, 5vw, 2rem);
+            letter-spacing: 0.04em;
+        }
+
+        .subtitle {
+            margin: 0.35rem 0 0;
+            color: #c7b9dc;
+            font-size: 0.95rem;
+        }
+
+        .stage {
+            position: relative;
+            width: min(100%, 900px);
+            aspect-ratio: 9 / 8;
+            overflow: hidden;
+            border: 1px solid rgb(226 190 255 / 20%);
+            border-radius: 1rem;
+            box-shadow: 0 0 36px rgb(191 92 255 / 16%);
+            background: #08051c;
+        }
+
+        canvas {
+            position: absolute;
+            inset: 0;
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        #message-canvas {
+            pointer-events: none;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+
+        button {
+            min-height: 44px;
+            padding: 0.65rem 1rem;
+            border: 1px solid #c786fa;
+            border-radius: 999px;
+            background: #24113c;
+            color: #fff;
+            font: inherit;
+            font-weight: 650;
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+
+        button:hover {
+            background: #3a1c5c;
+        }
+
+        button:focus-visible {
+            outline: 3px solid #ffb6e6;
+            outline-offset: 3px;
+        }
+
+        #status {
+            min-height: 1.5em;
+            margin: 0.65rem 0 0;
+            color: #c7b9dc;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+
+        .secret-note {
+            position: fixed;
+            right: 9px;
+            bottom: 7px;
+            z-index: 1;
+            color: #d7c3e8;
+            font-size: 7px;
+            opacity: 0.16;
+            transition: opacity 180ms ease, font-size 180ms ease;
+            cursor: default;
+        }
+
+        .secret-note:hover,
+        .secret-note:focus-visible {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+
+        @media (max-width: 480px) {
+            body {
+                padding: 0.9rem 0.65rem 1.5rem;
+            }
+
+            .stage {
+                border-radius: 0.65rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>To MfB <span aria-label="with love">♥</span></h1>
+    </header>
+
+    <main class="stage" aria-label="Animated rainbow flower with a curved message">
+        <canvas id="flower-canvas" aria-hidden="true"></canvas>
+        <canvas id="message-canvas" aria-hidden="true"></canvas>
+    </main>
+
+    <div class="controls" aria-label="Animation controls">
+        <button id="pause-button" type="button">Pause</button>
+        <button id="restart-button" type="button">Start over</button>
+    </div>
+    <p id="status" role="status" aria-live="polite">Drawing the flower…</p>
+    <small class="secret-note" tabindex="0">leaving ain't an option babe</small>
+    <noscript>This animation needs JavaScript enabled in your browser.</noscript>
+
+    <script>
+        "use strict";
+
+        const flowerCanvas = document.querySelector("#flower-canvas");
+        const messageCanvas = document.querySelector("#message-canvas");
+        const flowerContext = flowerCanvas.getContext("2d");
+        const messageContext = messageCanvas.getContext("2d");
+        const pauseButton = document.querySelector("#pause-button");
+        const restartButton = document.querySelector("#restart-button");
+        const status = document.querySelector("#status");
+
+        if (!flowerContext || !messageContext) {
+            status.textContent = "Sorry, this browser does not support canvas animation.";
+            pauseButton.disabled = true;
+            restartButton.disabled = true;
+            throw new Error("Canvas 2D is not supported by this browser.");
+        }
+
+        const PETAL_COUNT = 12;
+        const ARC_STEPS = 12;
+        const WAVE_DELAY = 3;
+        const FRAMES_PER_TICK = 9;
+        const FRAMES_PER_LAYER = (PETAL_COUNT - 1) * WAVE_DELAY + ARC_STEPS * 2 + 1;
+        const LAYER_COUNT = 70;
+        const MESSAGE = "Love yo Tasha";
+        const MESSAGE_PASSES = 8;
+        const TEXT_RADIUS = 470;
+        const TEXT_CENTER_Y = -195;
+        const CHARACTER_SPACING = 24;
+        const TAU = Math.PI * 2;
+
+        let pens = [];
+        let layer = 0;
+        let layerFrame = 0;
+        let animationFrame = 0;
+        let messageTimer = 0;
+        let messageIndex = 0;
+        let messagePass = 0;
+        let paused = false;
+        let scale = 1;
+        let pixelRatio = 1;
+
+        function setCanvasSize(canvas, context) {
+            const bounds = canvas.getBoundingClientRect();
+            const width = Math.max(1, bounds.width);
+            const height = Math.max(1, bounds.height);
+            pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+            canvas.width = Math.round(width * pixelRatio);
+            canvas.height = Math.round(height * pixelRatio);
+            scale = width / 900;
+            context.setTransform(
+                pixelRatio * scale, 0,
+                0, pixelRatio * scale,
+                pixelRatio * width / 2,
+                pixelRatio * height / 2
+            );
+        }
+
+        function pointOnCanvas(x, y) {
+            return [x, -y];
+        }
+
+        function createPens() {
+            return Array.from({ length: PETAL_COUNT }, () => ({
+                x: 0,
+                y: 0,
+                heading: 0,
+                color: "",
+                points: []
+            }));
+        }
+
+        function flushPen(pen) {
+            if (pen.points.length < 2) {
+                return;
+            }
+
+            flowerContext.beginPath();
+            flowerContext.moveTo(pen.points[0][0], pen.points[0][1]);
+            for (let index = 1; index < pen.points.length; index += 1) {
+                flowerContext.lineTo(pen.points[index][0], pen.points[index][1]);
+            }
+            flowerContext.strokeStyle = pen.color;
+            flowerContext.stroke();
+            pen.points = [pen.points[pen.points.length - 1]];
+        }
+
+        function flushPens() {
+            for (const pen of pens) {
+                flushPen(pen);
+            }
+        }
+
+        function beginPetal(petal) {
+            flushPen(pens[petal]);
+            const hue = (petal / PETAL_COUNT + layer / 35) % 1;
+            const pen = pens[petal];
+            pen.x = 0;
+            pen.y = 0;
+            pen.heading = (petal * 30 + layer) * Math.PI / 180;
+            pen.color = `hsl(${hue * 360} 82% 62%)`;
+            pen.points = [pointOnCanvas(0, 0)];
+        }
+
+        function drawArcStep(pen, radius, turnBeforeArc = false) {
+            if (turnBeforeArc) {
+                pen.heading += 2 * Math.PI / 3;
+            }
+
+            const centerX = pen.x - radius * Math.sin(pen.heading);
+            const centerY = pen.y + radius * Math.cos(pen.heading);
+            const radialAngle = pen.heading - Math.PI / 2 + Math.PI / 18;
+            pen.x = centerX + radius * Math.cos(radialAngle);
+            pen.y = centerY + radius * Math.sin(radialAngle);
+            pen.heading += Math.PI / 18;
+            pen.points.push(pointOnCanvas(pen.x, pen.y));
+        }
+
+        function advanceFlowerFrame() {
+            if (layer === LAYER_COUNT) {
+                flushPens();
+                flowerContext.clearRect(-450, -400, 900, 800);
+                layer = 0;
+                layerFrame = 0;
+            }
+
+            const radius = 80 + 40 * Math.sin(layer / 15);
+
+            for (let petal = 0; petal < PETAL_COUNT; petal += 1) {
+                const progress = layerFrame - petal * WAVE_DELAY;
+                const pen = pens[petal];
+
+                if (progress === 0) {
+                    beginPetal(petal);
+                } else if (progress >= 1 && progress <= ARC_STEPS) {
+                    drawArcStep(pen, radius);
+                } else if (progress === ARC_STEPS + 1) {
+                    drawArcStep(pen, radius, true);
+                } else if (progress > ARC_STEPS + 1 && progress <= ARC_STEPS * 2) {
+                    drawArcStep(pen, radius);
+                }
+            }
+
+            layerFrame += 1;
+            if (layerFrame === FRAMES_PER_LAYER) {
+                layer += 1;
+                layerFrame = 0;
+            }
+        }
+
+        function animate() {
+            if (paused) {
+                return;
+            }
+
+            for (let frame = 0; frame < FRAMES_PER_TICK; frame += 1) {
+                advanceFlowerFrame();
+            }
+
+            flushPens();
+            animationFrame = window.requestAnimationFrame(animate);
+        }
+
+        function drawMessageCharacter() {
+            const index = messageIndex;
+            const character = MESSAGE[index];
+            const offset = (index - (MESSAGE.length - 1) / 2) * CHARACTER_SPACING;
+            const angle = Math.PI / 2 - offset / TEXT_RADIUS;
+            const x = TEXT_RADIUS * Math.cos(angle);
+            const y = TEXT_CENTER_Y + TEXT_RADIUS * Math.sin(angle);
+            const rotation = offset / TEXT_RADIUS;
+            const hue = index / MESSAGE.length * 360;
+            const alpha = 0.22 + 0.22 * messagePass / (MESSAGE_PASSES - 1);
+
+            messageContext.save();
+            messageContext.translate(x, -y);
+            messageContext.rotate(rotation);
+            messageContext.globalAlpha = alpha;
+            messageContext.fillStyle = `hsl(${hue} 72% 78%)`;
+            messageContext.font = '300 22px "Segoe Script", "Brush Script MT", cursive';
+            messageContext.textAlign = "center";
+            messageContext.textBaseline = "middle";
+            messageContext.fillText(character, 0, 0);
+            messageContext.restore();
+
+            messageIndex += 1;
+            if (messageIndex === MESSAGE.length) {
+                messageIndex = 0;
+                messagePass += 1;
+            }
+
+            if (messagePass < MESSAGE_PASSES) {
+                messageTimer = window.setTimeout(drawMessageCharacter, 45);
+            }
+        }
+
+        function startOver() {
+            window.cancelAnimationFrame(animationFrame);
+            window.clearTimeout(messageTimer);
+            layer = 0;
+            layerFrame = 0;
+            messageIndex = 0;
+            messagePass = 0;
+            pens = createPens();
+            flowerContext.clearRect(-450, -400, 900, 800);
+            messageContext.clearRect(-450, -400, 900, 800);
+            paused = false;
+            pauseButton.textContent = "Pause";
+            pauseButton.setAttribute("aria-label", "Pause animation");
+            status.textContent = "Drawing the flower and message…";
+            drawMessageCharacter();
+            animationFrame = window.requestAnimationFrame(animate);
+        }
+
+        pauseButton.addEventListener("click", () => {
+            paused = !paused;
+            if (paused) {
+                window.cancelAnimationFrame(animationFrame);
+                window.clearTimeout(messageTimer);
+                pauseButton.textContent = "Resume";
+                pauseButton.setAttribute("aria-label", "Resume animation");
+                status.textContent = "Animation paused.";
+            } else {
+                pauseButton.textContent = "Pause";
+                pauseButton.setAttribute("aria-label", "Pause animation");
+                status.textContent = "Drawing the flower…";
+                if (messagePass < MESSAGE_PASSES) {
+                    messageTimer = window.setTimeout(drawMessageCharacter, 45);
+                }
+                animationFrame = window.requestAnimationFrame(animate);
+            }
+        });
+
+        restartButton.addEventListener("click", startOver);
+
+        function resizeArtwork() {
+            const wasPaused = paused;
+            window.cancelAnimationFrame(animationFrame);
+            setCanvasSize(flowerCanvas, flowerContext);
+            setCanvasSize(messageCanvas, messageContext);
+            startOver();
+            if (wasPaused) {
+                paused = true;
+                window.cancelAnimationFrame(animationFrame);
+                window.clearTimeout(messageTimer);
+                pauseButton.textContent = "Resume";
+                pauseButton.setAttribute("aria-label", "Resume animation");
+                status.textContent = "Animation paused.";
+            }
+        }
+
+        const resizeObserver = new ResizeObserver(resizeArtwork);
+        resizeObserver.observe(flowerCanvas);
+        setCanvasSize(flowerCanvas, flowerContext);
+        setCanvasSize(messageCanvas, messageContext);
+        startOver();
+    </script>
+</body>
+</html>
