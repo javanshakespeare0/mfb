@@ -46,6 +46,12 @@
             font-size: 0.95rem;
         }
 
+        audio {
+            display: block;
+            width: min(100%, 400px);
+            margin: 0 0 1rem;
+        }
+
         .stage {
             position: relative;
             width: min(100%, 900px);
@@ -139,6 +145,11 @@
     <header>
         <h1>To MfB <span aria-label="with love">♥</span></h1>
     </header>
+
+    <audio controls preload="metadata" aria-label="Play Tears of Gold">
+        <source src="audio.m4a" type="audio/mp4">
+        Your browser does not support audio playback.
+    </audio>
 
     <main class="stage" aria-label="Animated rainbow flower with a curved message">
         <canvas id="flower-canvas" aria-hidden="true"></canvas>
@@ -412,3 +423,4 @@
     </script>
 </body>
 </html>
+
